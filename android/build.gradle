@@ -49,6 +49,10 @@ android {
     lintOptions {
         disable 'InvalidPackage'
     }
+
+    buildFeatures {
+        buildConfig true
+    }
 }
 
 dependencies {
