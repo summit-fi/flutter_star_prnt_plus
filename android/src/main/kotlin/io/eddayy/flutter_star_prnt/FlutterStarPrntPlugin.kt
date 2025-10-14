@@ -705,41 +705,57 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
         return ICommandBuilder.BitmapConverterRotation.Rotate180
     else return ICommandBuilder.BitmapConverterRotation.Normal
   }
-  private fun createBitmapFromText(
-      printText: String,
-      textSize: Float,
-      printWidth: Int,
-      typeface: Typeface
-  ): Bitmap {
-    val paint: Paint = Paint()
-    paint.setTextSize(textSize)
-    paint.setTypeface(typeface)
-    paint.getTextBounds(printText, 0, printText.length, Rect())
+    private fun createBitmapFromText(
+        printText: String,
+        textSize: Float,
+        printWidth: Int,
+        typeface: Typeface
+    ): Bitmap {
+        val paint: Paint = Paint()
+        paint.setAntiAlias(true)
+        paint.setTypeface(typeface)
 
-    val textPaint: TextPaint = TextPaint(paint)
-    val staticLayout: android.text.StaticLayout =
-        StaticLayout(
-            printText,
-            textPaint,
-            printWidth,
-            Layout.Alignment.ALIGN_NORMAL,
-            1.toFloat(),
-            0.toFloat(),
-            false)
+        val lines = printText.split("\n")
+        val longestLine = lines.maxByOrNull { it.length } ?: printText
 
-    // Create bitmap
-    val bitmap: Bitmap =
-        Bitmap.createBitmap(
-            staticLayout.getWidth(), staticLayout.getHeight(), Bitmap.Config.ARGB_8888)
+        paint.setTextSize(textSize)
+        val measuredWidth = paint.measureText(longestLine)
 
-    // Create canvas
-    val canvas: Canvas = Canvas(bitmap)
-    canvas.drawColor(Color.WHITE)
-    canvas.translate(0.toFloat(), 0.toFloat())
-    staticLayout.draw(canvas)
-    return bitmap
-  }
-  private fun sendCommand(
+        val adjustedTextSize = if (measuredWidth > 0) {
+            (textSize * printWidth * 0.95f) / measuredWidth
+        } else {
+            textSize
+        }
+
+        paint.setTextSize(adjustedTextSize)
+        paint.getTextBounds(printText, 0, printText.length, Rect())
+
+        val textPaint: TextPaint = TextPaint(paint)
+        val staticLayout: android.text.StaticLayout =
+            StaticLayout(
+                printText,
+                textPaint,
+                printWidth,
+                Layout.Alignment.ALIGN_NORMAL,
+                1.0f,
+                0.0f,
+                false)
+
+        // Создаём bitmap с полной шириной
+        val bitmap: Bitmap =
+            Bitmap.createBitmap(
+                printWidth,  // Всегда используем полную ширину
+                staticLayout.getHeight(),
+                Bitmap.Config.ARGB_8888)
+
+        val canvas: Canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+        canvas.translate(0.0f, 0.0f)
+        staticLayout.draw(canvas)
+        return bitmap
+    }
+
+    private fun sendCommand(
       portName: String,
       portSettings: String,
       commands: ByteArray,
