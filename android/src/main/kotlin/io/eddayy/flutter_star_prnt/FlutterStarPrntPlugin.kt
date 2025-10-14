@@ -716,16 +716,14 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
         paint.setTypeface(typeface)
 
         val lines = printText.split("\n")
-        // Ищем строку с максимальной длиной (не trim!)
         val longestLine = lines.maxByOrNull { it.length } ?: printText
 
         paint.setTextSize(textSize)
-        // Используем специальный символ 'W' для вычисления ширины monospace
         val charWidth = paint.measureText("W")
         val measuredWidth = charWidth * longestLine.length
 
         val adjustedTextSize = if (measuredWidth > 0 && longestLine.length > 0) {
-            (textSize * printWidth * 0.98f) / measuredWidth
+            (textSize * printWidth * 0.99f) / measuredWidth
         } else {
             textSize
         }
