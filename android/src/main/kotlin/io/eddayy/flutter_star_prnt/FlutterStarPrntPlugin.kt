@@ -741,10 +741,9 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
                 0.0f,
                 false)
 
-        // Создаём bitmap с полной шириной
         val bitmap: Bitmap =
             Bitmap.createBitmap(
-                printWidth,  // Всегда используем полную ширину
+                printWidth,
                 staticLayout.getHeight(),
                 Bitmap.Config.ARGB_8888)
 
