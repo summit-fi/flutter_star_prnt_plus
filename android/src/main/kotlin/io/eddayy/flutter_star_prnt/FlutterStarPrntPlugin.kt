@@ -706,54 +706,56 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
     else return ICommandBuilder.BitmapConverterRotation.Normal
   }
     private fun createBitmapFromText(
-        printText: String,
-        textSize: Float,
-        printWidth: Int,
-        typeface: Typeface
-    ): Bitmap {
-        val paint: Paint = Paint()
-        paint.setAntiAlias(true)
-        paint.setTypeface(typeface)
-
-        val lines = printText.split("\n")
-        val longestLine = lines.maxByOrNull { it.length } ?: printText
-
-        paint.setTextSize(textSize)
-        val charWidth = paint.measureText("W")
-        val measuredWidth = charWidth * longestLine.length
-
-        val adjustedTextSize = if (measuredWidth > 0 && longestLine.length > 0) {
-            (textSize * printWidth * 0.99f) / measuredWidth
-        } else {
-            textSize
-        }
-
-        paint.setTextSize(adjustedTextSize)
-        paint.getTextBounds(printText, 0, printText.length, Rect())
-
-        val textPaint: TextPaint = TextPaint(paint)
-        val staticLayout: android.text.StaticLayout =
-            StaticLayout(
-                printText,
-                textPaint,
-                printWidth,
-                Layout.Alignment.ALIGN_NORMAL,
-                1.0f,
-                0.0f,
-                false)
-
-        val bitmap: Bitmap =
-            Bitmap.createBitmap(
-                printWidth,
-                staticLayout.getHeight(),
-                Bitmap.Config.ARGB_8888)
-
-        val canvas: Canvas = Canvas(bitmap)
-        canvas.drawColor(Color.WHITE)
-        canvas.translate(0.0f, 0.0f)
-        staticLayout.draw(canvas)
-        return bitmap
+    printText: String,
+    textSize: Float,
+    printWidth: Int,
+    typeface: Typeface
+): Bitmap {
+    val paint: Paint = Paint()
+    paint.setAntiAlias(true)
+    paint.setTypeface(typeface)
+    
+    val lines = printText.split("\n")
+    val longestLine = lines.maxByOrNull { it.length } ?: printText
+    
+    paint.setTextSize(textSize)
+    val charWidth = paint.measureText("W")
+    val measuredWidth = charWidth * longestLine.length
+    
+    val adjustedTextSize = if (measuredWidth > 0 && longestLine.length > 0) {
+        val calculated = (textSize * printWidth * 0.99f) / measuredWidth
+        maxOf(8.0f, minOf(50.0f, calculated))
+    } else {
+        textSize
     }
+    
+    paint.setTextSize(adjustedTextSize)
+    paint.getTextBounds(printText, 0, printText.length, Rect())
+
+    val textPaint: TextPaint = TextPaint(paint)
+    val staticLayout: android.text.StaticLayout =
+        StaticLayout(
+            printText,
+            textPaint,
+            printWidth,
+            Layout.Alignment.ALIGN_NORMAL,
+            1.0f,
+            0.0f,
+            false)
+
+    val bitmap: Bitmap =
+        Bitmap.createBitmap(
+            printWidth,
+            staticLayout.getHeight(), 
+            Bitmap.Config.ARGB_8888)
+
+    val canvas: Canvas = Canvas(bitmap)
+    canvas.drawColor(Color.WHITE)
+    canvas.translate(0.0f, 0.0f)
+    staticLayout.draw(canvas)
+    return bitmap
+}
+
     private fun sendCommand(
       portName: String,
       portSettings: String,
