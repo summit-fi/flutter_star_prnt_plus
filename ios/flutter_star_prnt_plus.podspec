@@ -18,12 +18,16 @@ Pod::Spec.new do |s|
   s.dependency 'Flutter'
   s.static_framework = true
   s.platform = :ios, '14.0'
-  s.preserve_paths = 'Frameworks/*.framework'
-  s.vendored_frameworks = 'Frameworks/*.framework'
+  unless ENV['STAR_PRNT_SIMULATOR_STUB'] == '1'
+    s.preserve_paths = 'Frameworks/*.framework'
+    s.vendored_frameworks = 'Frameworks/*.framework'
+  end
   # Flutter.framework does not contain a i386 slice. Only x86_64 simulators are supported.
   s.pod_target_xcconfig = { 
     'DEFINES_MODULE' => 'NO', 
   }
-  s.xcconfig = { "OTHER_LDFLAGS" => '$(inherited) -framework "ExternalAccessory" -framework "CoreBluetooth" -framework "StarIO" -framework "StarIO_Extension"' }
+  unless ENV['STAR_PRNT_SIMULATOR_STUB'] == '1'
+    s.xcconfig = { "OTHER_LDFLAGS" => '$(inherited) -framework "ExternalAccessory" -framework "CoreBluetooth" -framework "StarIO" -framework "StarIO_Extension"' }
+  end
   s.swift_version = '5.0'
 end

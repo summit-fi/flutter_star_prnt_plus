@@ -1,3 +1,4 @@
+#if !targetEnvironment(simulator)
 import Flutter
 import UIKit
 import StarIO
@@ -788,3 +789,4 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
 
 
 }
+#endif
