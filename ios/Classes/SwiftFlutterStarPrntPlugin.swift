@@ -1,3 +1,4 @@
+#if !targetEnvironment(simulator)
 import Flutter
 import UIKit
 import StarIO
@@ -28,83 +29,96 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
     public func portDiscovery(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as! Dictionary<String, AnyObject>
         let type = arguments["type"] as! String
-        do {
-            var info = [Dictionary<String,String>]()
-            if ( type == "Bluetooth" || type == "All") {
-                let btPortInfoArray = try SMPort.searchPrinter(target: "BT:")
-                for printer in btPortInfoArray {
-                    info.append(portInfoToDictionary(portInfo: printer as! PortInfo))
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                var info = [Dictionary<String,String>]()
+                if (type == "Bluetooth" || type == "All") {
+                    let btPortInfoArray = try SMPort.searchPrinter(target: "BT:")
+                    for printer in btPortInfoArray {
+                        info.append(self.portInfoToDictionary(portInfo: printer as! PortInfo))
+                    }
+                }
+                if (type == "LAN" || type == "All") {
+                    let lanPortInfoArray = try SMPort.searchPrinter(target: "TCP:")
+                    for printer in lanPortInfoArray {
+                        info.append(self.portInfoToDictionary(portInfo: printer as! PortInfo))
+                    }
+                }
+                if (type == "USB" || type == "All") {
+                    let usbPortInfoArray = try SMPort.searchPrinter(target: "USB:")
+                    for printer in usbPortInfoArray {
+                        info.append(self.portInfoToDictionary(portInfo: printer as! PortInfo))
+                    }
+                }
+                DispatchQueue.main.async {
+                    result(info)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "PORT_DISCOVERY_ERROR", message: error.localizedDescription, details: nil))
                 }
             }
-            if ( type == "LAN" || type == "All") {
-                let lanPortInfoArray = try SMPort.searchPrinter(target: "TCP:")
-                for printer in lanPortInfoArray {
-                    info.append(portInfoToDictionary(portInfo: printer as! PortInfo))
-                }
-            }
-            if ( type == "USB" || type == "All") {
-                let usbPortInfoArray = try SMPort.searchPrinter(target: "USB:")
-                for printer in usbPortInfoArray {
-                    info.append(portInfoToDictionary(portInfo: printer as! PortInfo))
-                }
-            }
-            result(info)
-        } catch {
-            result(
-                FlutterError.init(code: "PORT_DISCOVERY_ERROR", message: error.localizedDescription, details: nil)
-            )
         }
     }
 
-    public func checkStatus (_ call: FlutterMethodCall, result: @escaping FlutterResult){
+    public func checkStatus(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as! Dictionary<String, AnyObject>
         let portName = arguments["portName"] as! String
         let emulation = arguments["emulation"] as! String
-        var port:SMPort
-        var status: StarPrinterStatus_2 = StarPrinterStatus_2()
-        do {
-            port = try SMPort.getPort(portName: portName, portSettings: getPortSettingsOption(emulation), ioTimeoutMillis: 10000)
-            defer {
-                SMPort.release(port)
-            }
-            if #available(iOS 11.0, *){
-                if(portName.uppercased().hasPrefix("BT:")) {
-                    usleep(200000) //sleep 0.2 seconds
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            var port: SMPort
+            var status = StarPrinterStatus_2()
+            do {
+                port = try SMPort.getPort(portName: portName, portSettings: self.getPortSettingsOption(emulation), ioTimeoutMillis: 10000)
+                defer {
+                    SMPort.release(port)
+                }
+                if #available(iOS 11.0, *) {
+                    if portName.uppercased().hasPrefix("BT:") {
+                        usleep(200000) // Sleep 0.2 seconds
+                    }
+                }
+                try port.getParsedStatus(starPrinterStatus: &status, level: 2)
+                var firmwareInformation: Dictionary = [AnyHashable: Any]()
+                var errorMsg: String?
+
+                do {
+                    firmwareInformation = try port.getFirmwareInformation()
+                } catch {
+                    errorMsg = error.localizedDescription
+                }
+                let response = self.portStatusToDictionary(status: status, firmwareInformation: firmwareInformation, errorMsg: errorMsg)
+
+                DispatchQueue.main.async {
+                    result(response)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "CHECK_STATUS_ERROR", message: error.localizedDescription, details: nil))
                 }
             }
-            try port.getParsedStatus(starPrinterStatus: &status, level: 2)
-            var firmwareInformation: Dictionary =  [AnyHashable:Any]()
-            var errorMsg:String?
-            
-            do {
-                firmwareInformation = try port.getFirmwareInformation()
-            } catch {
-                errorMsg = error.localizedDescription
-            }
-            result(portStatusToDictionary(status: status,firmwareInformation: firmwareInformation,errorMsg: errorMsg))
-        } catch {
-            result(
-                 FlutterError.init(code: "CHECK_STATUS_ERROR", message: error.localizedDescription, details: nil)
-             )
         }
     }
-    
+
     public func print(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as! Dictionary<String, AnyObject>
         let portName = arguments["portName"] as! String
         let emulation = arguments["emulation"] as! String
-        let printCommands = arguments["printCommands"] as! Array<Dictionary<String,Any>>
+        let printCommands = arguments["printCommands"] as! Array<Dictionary<String, Any>>
 
-        
-        let portSettings :String = getPortSettingsOption(emulation)
-        let starEmulation :StarIoExtEmulation = getEmulation(emulation)
-        let builder:ISCBBuilder = StarIoExt.createCommandBuilder(starEmulation)
-        builder.beginDocument()
-        appendCommands(builder: builder, printCommands: printCommands)
-        builder.endDocument()
-        sendCommand(portName: portName, portSetting: portSettings, command: [UInt8](builder.commands.copy() as! Data),result: result)
-        
+        DispatchQueue.global(qos: .userInitiated).async {
+            let portSettings: String = self.getPortSettingsOption(emulation)
+            let starEmulation: StarIoExtEmulation = self.getEmulation(emulation)
+            let builder: ISCBBuilder = StarIoExt.createCommandBuilder(starEmulation)
+            builder.beginDocument()
+            self.appendCommands(builder: builder, printCommands: printCommands)
+            builder.endDocument()
+            self.sendCommand(portName: portName, portSetting: portSettings, command: [UInt8](builder.commands.copy() as! Data), result: result)
+        }
     }
+
     
     func portInfoToDictionary(portInfo: PortInfo) -> Dictionary<String,String>{
         return [
@@ -775,3 +789,4 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
 
 
 }
+#endif
