@@ -29,11 +29,17 @@ import io.flutter.plugin.common.MethodChannel.Result
 import java.io.IOException
 import java.nio.charset.Charset
 import java.nio.charset.UnsupportedCharsetException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import android.webkit.URLUtil
 
 /** FlutterStarPrntPlugin */
 public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
   protected var starIoExtManager: StarIoExtManager? = null
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private val nextConnectRequestId = AtomicLong(0)
+  @Volatile private var activeConnectRequestId = 0L
+  private val connectionTimeoutMillis = 30_000L
   companion object {
     protected lateinit var applicationContext: Context
 
@@ -58,7 +64,19 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
     Thread(MethodRunner(call, result)).start()
   }
 
-  override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {}
+  override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+    activeConnectRequestId = 0L
+    mainHandler.removeCallbacksAndMessages(null)
+    try {
+      starIoExtManager?.disconnect(object : IConnectionCallback {
+        override fun onConnected(connectResult: IConnectionCallback.ConnectResult) {}
+        override fun onDisconnected() {}
+      })
+    } catch (e: Exception) {
+      Log.w("FlutterStarPrnt", "Plugin detach cleanup failed", e)
+    }
+    starIoExtManager = null
+  }
   inner class MethodRunner(call: MethodCall, result: Result) : Runnable {
     private val call: MethodCall = call
     private val result: Result = result
@@ -82,8 +100,10 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
 
     private val methodResult: Result = methodResult
     private val handler: Handler = Handler(Looper.getMainLooper())
+    private val completed = AtomicBoolean(false)
 
     public override fun success(result: Any?) {
+        if (!completed.compareAndSet(false, true)) return
         handler.post(object : Runnable {
           override fun run() {
             methodResult.success(result)
@@ -92,6 +112,7 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
     }
 
     public override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+        if (!completed.compareAndSet(false, true)) return
         handler.post(object : Runnable {
           override fun run() {
             methodResult.error(errorCode, errorMessage, errorDetails)
@@ -100,6 +121,7 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
     }
 
     public override fun notImplemented() {
+        if (!completed.compareAndSet(false, true)) return
         handler.post(object : Runnable {
           override fun run() {
             methodResult.notImplemented()
@@ -122,7 +144,7 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
       }
       result.success(response)
     } catch (e: Exception) {
-      result.error("PORT_DISCOVERY_ERROR", e.message, null)
+      result.error("STAR_SEARCH_FAILED", e.message, null)
     }
   }
   public fun checkStatus(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -159,13 +181,13 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
       }
       result.success(json)
     } catch (e: Exception) {
-      result.error("CHECK_STATUS_ERROR", e.message, null)
+      result.error("STAR_STATUS_FAILED", e.message, null)
     } finally {
       if (port != null) {
         try {
          StarIOPort.releasePort(port)
         } catch (e: Exception) {
-          result.error("CHECK_STATUS_ERROR", e.message, null)
+          Log.w("FlutterStarPrnt", "Status port release failed", e)
         }
       }
     }
@@ -177,11 +199,27 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
     val hasBarcodeReader: Boolean? = call.argument<Boolean>("hasBarcodeReader") as Boolean
 
     val portSettings: String? = getPortSettingsOption(emulation)
+    val requestId = nextConnectRequestId.incrementAndGet()
+    activeConnectRequestId = requestId
+    val timeout = Runnable {
+      if (activeConnectRequestId != requestId) return@Runnable
+      activeConnectRequestId = 0L
+      try {
+        starIoExtManager?.disconnect(object : IConnectionCallback {
+          override fun onConnected(connectResult: IConnectionCallback.ConnectResult) {}
+          override fun onDisconnected() {}
+        })
+      } catch (e: Exception) {
+        Log.w("FlutterStarPrnt", "Connect timeout cleanup failed", e)
+      }
+      result.error("TRANSPORT_TIMEOUT", "Timed out connecting to the printer", null)
+    }
+    mainHandler.postDelayed(timeout, connectionTimeoutMillis)
     try {
-      var starIoExtManager = this.starIoExtManager
+      val previousManager = this.starIoExtManager
 
-      if (starIoExtManager?.port != null) {
-        starIoExtManager.disconnect(object : IConnectionCallback {
+      if (previousManager?.port != null) {
+        previousManager.disconnect(object : IConnectionCallback {
           public override fun onConnected(connectResult: IConnectionCallback.ConnectResult) {
           }
 
@@ -191,7 +229,7 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
         })
       }
 
-      starIoExtManager =
+      this.starIoExtManager =
           StarIoExtManager(
               if (hasBarcodeReader != null && hasBarcodeReader)
                   StarIoExtManager.Type.WithBarcodeReader
@@ -201,16 +239,18 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
               10000,
               applicationContext)
 
-      if (starIoExtManager != null)
-          starIoExtManager.connect(
+      this.starIoExtManager?.connect(
               object : IConnectionCallback {
 
                 public override fun onConnected(connectResult: IConnectionCallback.ConnectResult) {
+                  if (activeConnectRequestId != requestId) return
+                  activeConnectRequestId = 0L
+                  mainHandler.removeCallbacks(timeout)
                   if (connectResult == IConnectionCallback.ConnectResult.Success ||
                           connectResult == IConnectionCallback.ConnectResult.AlreadyConnected) {
                     result.success("Printer Connected")
                   } else {
-                    result.error("CONNECT_ERROR", "Error Connecting to the printer", null)
+                    result.error("STAR_PORT_FAILED", "Error connecting to the printer", null)
                   }
                 }
 
@@ -219,7 +259,11 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
                 }
               })
     } catch (e: Exception) {
-      result.error("CONNECT_ERROR", e.message, e)
+      if (activeConnectRequestId == requestId) {
+        activeConnectRequestId = 0L
+        mainHandler.removeCallbacks(timeout)
+      }
+      result.error("STAR_PORT_FAILED", e.message, e)
     }
   }
   public fun print(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -829,7 +873,7 @@ public class FlutterStarPrntPlugin : FlutterPlugin, MethodCallHandler {
       json["is_success"] = isSucess
       result.success(json)
     } catch (e: Exception) {
-      result.error("STARIO_PORT_EXCEPTION", e.message + " Failed After $errorPosSting", null)
+      result.error("STAR_WRITE_FAILED", e.message + " Failed After $errorPosSting", null)
     } finally {
       if (port != null) {
         try {

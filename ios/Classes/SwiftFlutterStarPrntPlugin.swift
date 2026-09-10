@@ -4,6 +4,27 @@ import UIKit
 import StarIO
 import StarIO_Extension
 
+private final class ExactlyOnceFlutterResult {
+  private let lock = NSLock()
+  private var completed = false
+  private let result: FlutterResult
+
+  init(_ result: @escaping FlutterResult) {
+    self.result = result
+  }
+
+  func resolve(_ value: Any?) {
+    lock.lock()
+    guard !completed else {
+      lock.unlock()
+      return
+    }
+    completed = true
+    lock.unlock()
+    result(value)
+  }
+}
+
 public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "flutter_star_prnt", binaryMessenger: registrar.messenger())
@@ -12,17 +33,18 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
   }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        let guardedResult = ExactlyOnceFlutterResult(result)
         switch (call.method) {
             case "portDiscovery":
-                portDiscovery(call, result: result)
+                portDiscovery(call, result: guardedResult.resolve)
                 break;
             case "checkStatus":
-                checkStatus(call, result: result)
+                checkStatus(call, result: guardedResult.resolve)
                 break;
             case "print":
-                print(call, result: result)
+                print(call, result: guardedResult.resolve)
             default:
-                result(FlutterMethodNotImplemented)
+                guardedResult.resolve(FlutterMethodNotImplemented)
       }
     }
     
@@ -56,7 +78,7 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "PORT_DISCOVERY_ERROR", message: error.localizedDescription, details: nil))
+                    result(FlutterError(code: "STAR_SEARCH_FAILED", message: error.localizedDescription, details: nil))
                 }
             }
         }
@@ -96,7 +118,7 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    result(FlutterError(code: "CHECK_STATUS_ERROR", message: error.localizedDescription, details: nil))
+                    result(FlutterError(code: "STAR_STATUS_FAILED", message: error.localizedDescription, details: nil))
                 }
             }
         }
@@ -756,6 +778,13 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
                 while total < UInt32(command.count) {
                     var written: UInt32 = 0
                     try port.write(writeBuffer: command, offset: total, size: UInt32(command.count) - total, numberOfBytesWritten: &written)
+                    if written == 0 {
+                        throw NSError(
+                          domain: "flutter_star_prnt",
+                          code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "StarIO write made no progress"]
+                        )
+                    }
                     total += written
                 }
                 try port.endCheckedBlock(starPrinterStatus: &status, level: 2)
@@ -782,7 +811,7 @@ public class SwiftFlutterStarPrntPlugin: NSObject, FlutterPlugin {
 
         } catch {
             result(
-              FlutterError.init(code: "STARIO_PRINT_EXCEPTION", message: error.localizedDescription, details: nil)
+              FlutterError.init(code: "STAR_WRITE_FAILED", message: error.localizedDescription, details: nil)
           )
         }
     }
